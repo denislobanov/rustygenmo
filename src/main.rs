@@ -1,9 +1,10 @@
 extern crate clap;
 
-use std::io;
-use std::fs::File;
 use std::collections::HashMap;
+use std::fs::File;
+use std::io;
 use std::io::Read;
+
 use clap::{App, Arg};
 
 fn read_file(path: &str) -> io::Result<String> {
@@ -12,10 +13,10 @@ fn read_file(path: &str) -> io::Result<String> {
     Ok(s)
 }
 
-fn clean_corpus(corpus: &str) -> Vec<String> {
+fn create_corpus(corpus: &str) -> Vec<String> {
     return corpus
         // handle no whitespace after punctuation
-        .split(|c: char| c.is_whitespace() || c.is_ascii_punctuation())
+        .split(|c: char| c.is_whitespace() || c == '.')
         // clean up words
         .map(clean_word)
         // remove empty items
@@ -33,7 +34,7 @@ fn clean_word(w: &str) -> String {
 
 fn word_frequency(corpus: &str) -> HashMap<String, u64> {
     let mut map = HashMap::new();
-    let words: Vec<String> = clean_corpus(corpus);
+    let words: Vec<String> = create_corpus(corpus);
 
     for word in words.into_iter() {
         if map.contains_key(&word) {
@@ -42,6 +43,13 @@ fn word_frequency(corpus: &str) -> HashMap<String, u64> {
             map.insert(word.to_string(), 1);
         }
     }
+
+    return map
+}
+
+fn group_frequencies(freq: &HashMap<String, u64>) -> HashMap<u64, u64> {
+    let mut map: HashMap<u64, u64> = HashMap::new();
+    freq.iter().for_each(|(_, v)| *map.entry(*v).or_insert(0) += 1);
 
     return map
 }
@@ -61,7 +69,9 @@ fn main() {
     if let Some(f) = matches.value_of("file") {
         let corpus = read_file(f);
         if let Ok(c) = corpus {
-            let freq = word_frequency(c.as_str());
+            let freq: HashMap<String, u64> = word_frequency(c.as_str());
+
+            let groups: HashMap<u64, u64> = group_frequencies(&freq);
 
             let mut result: Vec<(String, u64)> = Vec::new();
             freq.into_iter()
@@ -70,7 +80,7 @@ fn main() {
             // sort
             result.sort_by(|(_,v1), (_, v2)| v2.cmp(v1));
             result.iter()
-                .for_each(|(k,_)| println!("[{}]", k));
+                .for_each(|(k, v)| println!("{} {}", k, v));
 
             println!("\n5 most common:");
             result.iter()
@@ -82,6 +92,14 @@ fn main() {
             result.iter()
                 .take(5)
                 .for_each(|(k,v)| println!("[{}] {}", k, v));
+
+            println!("\ntop 5 groups");
+            let mut gr: Vec<(u64, u64)> = Vec::new();
+            groups.into_iter().for_each(|e| gr.push(e));
+            gr.sort_by(|(_, v1), (_, v2)| v2.cmp(v1));
+            gr.iter()
+                .take(5)
+                .for_each(|(k, v)| println!("{} -> {}", k, v))
         }
     } else {
         eprintln!("need to give a file")
