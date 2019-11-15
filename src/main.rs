@@ -12,17 +12,34 @@ fn read_file(path: &str) -> io::Result<String> {
     Ok(s)
 }
 
-fn word_frequency(corpus: &str) -> HashMap<&str, u64> {
-    let mut map = HashMap::new();
-    let words: Vec<&str> = corpus.split_whitespace()
-        .map(|w| w.trim().trim_matches(|c| c == '.' || c == ','))
+fn clean_corpus(corpus: &str) -> Vec<String> {
+    return corpus
+        // handle no whitespace after punctuation
+        .split(|c: char| c.is_whitespace() || c.is_ascii_punctuation())
+        // clean up words
+        .map(clean_word)
+        // remove empty items
+        .filter(|w| w.len()>1 || *w == "i")
         .collect();
+}
+
+fn clean_word(w: &str) -> String {
+    return w.to_ascii_lowercase()
+        .trim()
+        .replace("''", "\"")
+        .trim_matches(|c: char| !c.is_alphabetic())
+        .to_string()
+}
+
+fn word_frequency(corpus: &str) -> HashMap<String, u64> {
+    let mut map = HashMap::new();
+    let words: Vec<String> = clean_corpus(corpus);
 
     for word in words.into_iter() {
         if map.contains_key(&word) {
             *map.get_mut(&word).unwrap() += 1;
         } else {
-            map.insert(word, 1);
+            map.insert(word.to_string(), 1);
         }
     }
 
@@ -46,14 +63,24 @@ fn main() {
         if let Ok(c) = corpus {
             let freq = word_frequency(c.as_str());
 
-            let mut result: Vec<(&str, u64)> = Vec::new();
+            let mut result: Vec<(String, u64)> = Vec::new();
             freq.into_iter()
                 .for_each(|e| result.push(e));
 
             // sort
-            result.sort_by(|(_,v1), (_, v2)| v1.cmp(v2));
+            result.sort_by(|(_,v1), (_, v2)| v2.cmp(v1));
+            result.iter()
+                .for_each(|(k,_)| println!("[{}]", k));
+
+            println!("\n5 most common:");
+            result.iter()
+                .take(5)
+                .for_each(|(k,v)| println!("[{}] {}", k, v));
+
+            println!("\n5 least common:");
             result.reverse();
             result.iter()
+                .take(5)
                 .for_each(|(k,v)| println!("[{}] {}", k, v));
         }
     } else {
