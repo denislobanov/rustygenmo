@@ -4,6 +4,7 @@ use std::io;
 use std::io::Read;
 
 use clap::ArgMatches;
+use std::fmt::Display;
 
 fn read_file(file: &str) -> io::Result<String> {
     let mut s = String::new();
@@ -54,12 +55,12 @@ fn group_frequencies(freq: &HashMap<String, u64>) -> HashMap<u64, u64> {
 
 pub fn analyse_cmd(args: &ArgMatches) -> () {
     let file = args.value_of("file").unwrap();
-
-    if let
-
-    if let data = match read_file(file) {
+    let data = match read_file(file) {
         Ok(d) => d,
-        Err(e) => eprintln!("Could not open file {} for reading, the error was: {}", file, e)
+        Err(e) => {
+            eprintln!("Could not open file {} for reading, the error was: {}", file, e);
+            return
+        }
     };
     let first = match args.value_of("first") {
         Some(v) => v.parse::<usize>().unwrap(),
@@ -72,18 +73,25 @@ pub fn analyse_cmd(args: &ArgMatches) -> () {
 
     if args.is_present("dump") {
         dump(&data, first, last);
+    } else if args.is_present("words") {
+        word_cmd(&data, first, last);
+    } else if args.is_present("groups") {
+        group_cmd(&data, first, last)
+    } else {
+        eprintln!("you must choose dump|words|groups")
     }
 }
 
-fn dump(data: &str, first: usize, last: usize) -> () {
+fn dump(data: &str, _: usize, _: usize) -> () {
     let words = create_corpus(data);
 
     let mut set: HashSet<String> = HashSet::new();
     words.into_iter().for_each(|w| {
         set.insert(w);
         return ();
-    }); //TODO set::insert
-    set.into_iter().for_each(|w| println!("[{}]", w));
+    });
+
+    set.into_iter().for_each(|w| println!("[{}]", w))
 }
 
 fn word_cmd(data: &str, first: usize, last: usize) -> () {
@@ -95,7 +103,7 @@ fn word_cmd(data: &str, first: usize, last: usize) -> () {
         .for_each(|e| result.push(e));
 
     result.sort_by(|(_, v1), (_, v2)| v2.cmp(v1));
-    print_kv(&result, first, last);
+    print_kv(result, first, last);
 }
 
 fn group_cmd(data: &str, first: usize, last: usize) -> () {
@@ -107,10 +115,10 @@ fn group_cmd(data: &str, first: usize, last: usize) -> () {
         .for_each(|e| result.push(e)); //TODO result::push
 
     result.sort_by(|(_, v1), (_, v2)| v2.cmp(v1));
-    print_kv(&result, first, last);
+    print_kv(result, first, last);
 }
 
-fn print_kv<K, V>(mut set: &Vec<(K, V)>, first: usize, last: usize) -> () {
+fn print_kv<K: Display, V: Display>(mut set: Vec<(K, V)>, first: usize, last: usize) -> () {
     if first == 0 && last == 0 {
         set.iter().for_each(|(k, v)| println!("{} {}", k, v))
     } else {
