@@ -1,9 +1,8 @@
 extern crate clap;
 
-mod analyse;
+mod train;
 
 use clap::{App, Arg};
-use crate::analyse::analyse_cmd;
 
 fn main() {
     let matches = App::new("rustygenmo")
@@ -19,15 +18,6 @@ fn main() {
                 .help("Path to a file to analyse")
                 .required(true)
                 .takes_value(true))
-            .arg(Arg::with_name("dump")
-                .short("d")
-                .help("Print all unique words considered when parsing corpus"))
-            .arg(Arg::with_name("words")
-                .short("w")
-                .help("Word frequency"))
-            .arg(Arg::with_name("groups")
-                .short("g")
-                .help("Word frequency groups"))
             .arg(Arg::with_name("first")
                 .short("a")
                 .help("return first n items only")
@@ -35,12 +25,18 @@ fn main() {
             .arg(Arg::with_name("last")
                 .short("b")
                 .help("return last n items only")
-                .takes_value(true)))
+                .takes_value(true))
+            .subcommand(App::new("dump")
+                .about("Dump all unique words considered when parsing corpus"))
+            .subcommand(App::new("words")
+                .about("Word frequency"))
+            .subcommand(App::new("groups")
+                .about("Word frequency groups")))
         .get_matches();
 
     match matches.subcommand() {
         ("analyse", Some(args)) => {
-            analyse_cmd(args)
+            train::analyse_cmd(args)
         }
         _ => eprintln!("{}", matches.usage())
     }
