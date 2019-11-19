@@ -7,6 +7,7 @@ use crate::train::analyse::create_corpus;
 use std::convert::TryInto;
 use std::str::from_utf8;
 use std::borrow::Borrow;
+use std::collections::HashMap;
 
 pub struct Persistent {
     db: Db
@@ -19,25 +20,33 @@ impl Persistent {
         for file in files {
             let data = read_file(file).unwrap(); //todo error handling
 
+            // build map of word frequency
             create_corpus(&data).into_iter().for_each(|w| {
                 t.update_and_fetch(w, inc).unwrap();
                 return;
             });
         }
 
-        // print some data! (for now)
-        t.iter().for_each(|e| {
-            match e {
-                Ok((k, v)) => {
+        // calculate groups
+        let mut map: HashMap<u32, u32> = HashMap::new();
+
+        t.iter().into_iter().for_each(|x| {
+            if x.is_err() {
+                panic!("wtf {}", x.err().unwrap())
+            }
+
+            match x.ok() {
+                Some((_, v)) => {
                     let a:[u8; 4] = v.iter().as_slice().try_into().unwrap();
                     let count = u32::from_be_bytes(a);
-                    let key = from_utf8(k.borrow()).unwrap();
-
-                    println!("{} {}", key, count);
-                }
-                Err(e) => eprintln!("shit! {}", e.to_string())
+                    *map.entry(count).or_insert(0) += 1;
+                },
+                None => panic!("empty!"),
             }
-        })
+        });
+
+        // print some data! (for now)
+        map.iter().for_each(|(k, v)| println!("{} {}", *k, *v))
     }
 }
 
@@ -55,7 +64,7 @@ fn inc(v: Option<&[u8]>) -> Option<Vec<u8>> {
             let n = u32::from_be_bytes(a);
             n + 1
         }
-        None => 0,
+        None => 1,
     };
 
     Some(count.to_be_bytes().to_vec())
