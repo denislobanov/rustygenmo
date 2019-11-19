@@ -1,6 +1,14 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 
+fn clean_word(w: &str) -> String {
+    return w.to_ascii_lowercase()
+        .trim()
+        .replace("''", "\"")
+        .trim_matches(|c: char| !c.is_alphabetic())
+        .to_string();
+}
+
 pub fn create_corpus(corpus: &str) -> Vec<String> {
     return corpus
         // handle no whitespace after punctuation
@@ -10,14 +18,6 @@ pub fn create_corpus(corpus: &str) -> Vec<String> {
         // remove empty items
         .filter(|w| w.len() > 1 || *w == "i")
         .collect();
-}
-
-fn clean_word(w: &str) -> String {
-    return w.to_ascii_lowercase()
-        .trim()
-        .replace("''", "\"")
-        .trim_matches(|c: char| !c.is_alphabetic())
-        .to_string();
 }
 
 fn word_frequency(data: &str) -> HashMap<String, u64> {
@@ -42,7 +42,7 @@ fn group_frequencies(freq: &HashMap<String, u64>) -> HashMap<u64, u64> {
     return map;
 }
 
-fn print_kv<K: Display, V: Display>(mut set: Vec<(K, V)>, first: usize, last: usize) -> () {
+pub fn print_kv<K: Display, V: Display>(mut set: Vec<(K, V)>, first: usize, last: usize) -> () {
     if first == 0 && last == 0 {
         set.iter().for_each(|(k, v)| println!("{} {}", k, v))
     } else {
@@ -74,7 +74,7 @@ pub fn dump_cmd(data: &str) -> () {
     set.into_iter().for_each(|e| println!("[{}]", e))
 }
 
-pub fn word_cmd(data: &str, first: usize, last: usize) -> () {
+pub fn word_cmd(data: &str) -> Vec<(String, u64)> {
     let freq = word_frequency(data);
 
     // scan map
@@ -83,10 +83,10 @@ pub fn word_cmd(data: &str, first: usize, last: usize) -> () {
         .for_each(|e| result.push(e));
 
     result.sort_by(|(_, v1), (_, v2)| v2.cmp(v1));
-    print_kv(result, first, last);
+    return result;
 }
 
-pub fn group_cmd(data: &str, first: usize, last: usize) -> () {
+pub fn group_cmd(data: &str) -> Vec<(u64, u64)> {
     let freq: HashMap<String, u64> = word_frequency(data);
     let groups: HashMap<u64, u64> = group_frequencies(&freq);
 
@@ -95,5 +95,5 @@ pub fn group_cmd(data: &str, first: usize, last: usize) -> () {
         .for_each(|e| result.push(e)); //TODO result::push
 
     result.sort_by(|(_, v1), (_, v2)| v2.cmp(v1));
-    print_kv(result, first, last);
+    return result;
 }

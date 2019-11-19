@@ -32,12 +32,29 @@ fn main() {
                 .about("Word frequency"))
             .subcommand(App::new("groups")
                 .about("Word frequency groups")))
+
+        // training
+        .subcommand(App::new("train")
+            .about("markov chain training")
+            .arg(Arg::with_name("path")
+                .short("p")
+                .help("path to corpus")
+                .required(true)
+                .takes_value(true))
+            .arg(Arg::with_name("dbpath")
+                .short("d")
+                .help("path to db")
+                .required(true)
+                .takes_value(true))
+            .arg(Arg::with_name("count")
+                .short("c")
+                .help("number of groups to use")
+                .takes_value(true)))
         .get_matches();
 
     match matches.subcommand() {
-        ("analyse", Some(args)) => {
-            train::analyse_cmd(args)
-        }
+        ("analyse", Some(args)) => train::analyse_cmd(args),
+        ("train", Some(args)) => train::train_cmd(args),
         _ => eprintln!("{}", matches.usage())
     }
 }

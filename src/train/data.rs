@@ -2,9 +2,9 @@ use std::fs;
 use std::fs::File;
 use std::io;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 
-pub fn read_file(file: &str) -> io::Result<String> {
+pub fn read_file<P: AsRef<Path>>(file: P) -> io::Result<String> {
     let mut s = String::new();
     File::open(file)?.read_to_string(&mut s)?;
     Ok(s)
