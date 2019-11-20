@@ -4,6 +4,7 @@ extern crate clap;
 #[macro_use]
 extern crate partial_application;
 mod train;
+mod generate;
 
 use clap::{App, Arg};
 
@@ -53,11 +54,26 @@ fn main() {
                 .short("c")
                 .help("number of groups to use")
                 .takes_value(true)))
+
+        // generation
+        .subcommand(App::new("generate")
+            .about("generate text")
+            .arg(Arg::with_name("dbpath")
+                .short("d")
+                .help("path to db")
+                .required(true)
+                .takes_value(true))
+            .arg(Arg::with_name("length")
+                .short("l")
+                .help("how many words to generate")
+                .takes_value(true)))
+
         .get_matches();
 
     match matches.subcommand() {
         ("analyse", Some(args)) => train::analyse_cmd(args),
         ("train", Some(args)) => train::train_cmd(args),
+        ("generate", Some(args)) => generate::run_cmd(args),
         _ => eprintln!("{}", matches.usage())
     }
 }

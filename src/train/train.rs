@@ -5,8 +5,6 @@ use std::path::PathBuf;
 use crate::train::data::read_file;
 use crate::train::analyse::create_corpus;
 use std::convert::TryInto;
-use std::str::from_utf8;
-use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use self::sled::{IVec, Tree};
 
@@ -104,11 +102,11 @@ impl Persistent {
                 }
 
                 //finally at the crux of all the above logic: group # is the n in n-gram is the key size
-                let key: Vec<String> = words[i..=i + g as usize].to_vec();
+                let key: Vec<String> = words[i..i + g as usize].to_vec();
                 let skey = bincode::serialize(&key).unwrap();
 
                 chains.get(&g).unwrap()
-                    .update_and_fetch(skey, partial_application::partial!(add_to_chain, w.to_string(), _))
+                    .update_and_fetch(skey, partial_application::partial!(add_to_chain, words[i+g as usize].to_string(), _))
                     .unwrap();
             }
         }
@@ -129,6 +127,7 @@ fn add_to_chain(word: String, old: Option<&[u8]>) -> Option<Vec<u8>> {
     let set: HashSet<String> = match old {
         Some(b) => {
             let mut s: HashSet<String> = bincode::deserialize(b.try_into().unwrap()).unwrap();
+            println!("INSERTING TO EXISTING {:?} <- {}", s, word);
             s.insert(word);
             s
         }
@@ -151,21 +150,21 @@ pub fn new(db_path: &str) -> Result<Persistent, String> {
     };
 }
 
-fn print_tree(t: sled::Tree) -> () {
-    t.iter().for_each(|r| {
-        if let Ok(e) = r {
-            match e {
-                (k, v) => {
-                    let key = from_utf8(k.borrow()).unwrap();
-                    let a: [u8; 4] = v.iter().as_slice().try_into().unwrap();
-                    let value = u32::from_be_bytes(a);
-
-                    println!("{} {}", key, value)
-                }
-            }
-        }
-    })
-}
+//fn print_tree(t: sled::Tree) -> () {
+//    t.iter().for_each(|r| {
+//        if let Ok(e) = r {
+//            match e {
+//                (k, v) => {
+//                    let key = from_utf8(k.borrow()).unwrap();
+//                    let a: [u8; 4] = v.iter().as_slice().try_into().unwrap();
+//                    let value = u32::from_be_bytes(a);
+//
+//                    println!("{} {}", key, value)
+//                }
+//            }
+//        }
+//    })
+//}
 
 fn u32_to_ivec(x: u32) -> IVec {
     IVec::from(x.to_be_bytes().to_vec())
