@@ -16,7 +16,9 @@ pub struct Persistent {
 
 impl Persistent {
     pub fn groups(&mut self, count: usize, files: Vec<PathBuf>) -> () {
-        let t = self.db.open_tree("words").unwrap(); //todo
+        //TODO: calculating word frequency across corpus here, what if I do it per document?
+        //  * grouping would still have to be done globally
+        let t = self.db.open_tree("words").unwrap(); //todo - proper error handling
 
         for file in files {
             let data = read_file(file).unwrap(); //todo error handling
