@@ -18,75 +18,56 @@ impl Persistent {
     pub fn groups(&mut self, count: usize, files: Vec<PathBuf>) -> () {
         //TODO: calculating word frequency across corpus here, what if I do it per document?
         //  * grouping would still have to be done globally
-        let t = self.db.open_tree("words").unwrap(); //todo - proper error handling
+        let mut freq: HashMap<String, u32> = HashMap::new();
 
         for file in files {
-            let data = read_file(file).unwrap(); //todo error handling
+            let data = read_file(file).unwrap(); //todo proper error handling
 
             // build map of word frequency
-            create_corpus(&data).into_iter().for_each(|w| {
-                t.update_and_fetch(w, inc).unwrap();
-                return;
-            });
+            create_corpus(&data).into_iter()
+                .for_each(|w| *freq.entry(w).or_insert(0) += 1);
         }
 
         // calculate groups
-        let mut map: HashMap<u32, u32> = HashMap::new();
+        let mut gmap: HashMap<u32, (u32, HashSet<String>)> = HashMap::new();
+        freq.into_iter().for_each(|(k, v)| {
+            match gmap.get_mut(&v) {
+                Some((g, s)) => {
+                    *g += 1;
+                    s.insert(k);
+                }
+                None => {
+                    let mut s: HashSet<String> = HashSet::new();
+                    s.insert(k);
 
-        t.iter().for_each(|x| {
-            if x.is_err() {
-                panic!("wtf {}", x.err().unwrap())
-            }
-
-            match x.ok() {
-                Some((_, v)) => {
-                    let a:[u8; 4] = v.iter().as_slice().try_into().unwrap();
-                    let count = u32::from_be_bytes(a);
-                    *map.entry(count).or_insert(0) += 1;
-                },
-                None => panic!("empty!"),
+                    gmap.insert(v, (1, s));
+                }
             }
         });
 
         // calculate top /count/ groups
-        let mut gs: Vec<(u32, u32)> = Vec::new();
-        map.into_iter().for_each(|e| gs.push(e));
-        gs.sort_by(|(_, v1), (_, v2)| v2.cmp(v1));
+        let mut gvec: Vec<(u32, (u32, HashSet<String>))> = Vec::new();
+        gmap.into_iter().for_each(|e| gvec.push(e));
+        gvec.sort_by(|(_, (c1, _)), (_, (c2, _))| c2.cmp(c1));
 
-        let mut tops: HashSet<u32> = HashSet::new();
         let mut last: u32 = 0;
-        for (g, _) in gs.into_iter().take(count) {
-            tops.insert(g);
-            last = g;
-        }
 
         // persist word -> group map for top _count_ groups
-        //TODO: refactor to store words with group counts to avoid O(n2)
         let groups = self.db.open_tree("groups").unwrap();
-
-        t.iter().for_each(|x| {
-            // already checked for errors on previous loop :'(
-
-            match x.ok() {
-                Some((k, v)) => {
-                    let key = from_utf8(k.borrow()).unwrap();
-                    let a: [u8; 4] = v.iter().as_slice().try_into().unwrap();
-                    let count = u32::from_be_bytes(a);
-
-                    if tops.contains(&count) {
-                        groups.insert(key, v).unwrap(); //todo err handling
-                    } else {
-                        groups.insert(key, u32_to_ivec(last)).unwrap();
-                    }
-
+        for (i, (g, (_, s))) in gvec.into_iter().enumerate() {
+            if i < count {
+                s.into_iter().for_each(|w| {
+                    //todo proper error handling
+                    groups.insert(w, u32_to_ivec(g)).unwrap();
                     return;
-                },
-                None => panic!("again with the empty!"),
+                });
+                last = g
+            } else {
+                s.into_iter().for_each(|w| {
+                    groups.insert(w, u32_to_ivec(last)).unwrap();
+                })
             }
-        });
-
-        // we dont need the word frequency tree anymore
-        self.db.drop_tree(b"words").unwrap();
+        }
 
         // print some data! (for now)
         print_tree(groups)
@@ -100,18 +81,18 @@ pub fn new(db_path: &str) -> Result<Persistent, String> {
     };
 }
 
-fn inc(v: Option<&[u8]>) -> Option<Vec<u8>> {
-    let count = match v {
-        Some(b) => {
-            let a:[u8; 4] = b.try_into().unwrap();
-            let n = u32::from_be_bytes(a);
-            n + 1
-        }
-        None => 1,
-    };
-
-    Some(count.to_be_bytes().to_vec())
-}
+//fn inc(v: Option<&[u8]>) -> Option<Vec<u8>> {
+//    let count = match v {
+//        Some(b) => {
+//            let a:[u8; 4] = b.try_into().unwrap();
+//            let n = u32::from_be_bytes(a);
+//            n + 1
+//        }
+//        None => 1,
+//    };
+//
+//    Some(count.to_be_bytes().to_vec())
+//}
 
 fn print_tree(t: sled::Tree) -> () {
     t.iter().for_each(|r| {
