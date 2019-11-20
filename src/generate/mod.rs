@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use sled::{IVec, Tree};
 use self::rand::seq::IteratorRandom;
 use std::convert::TryInto;
+use self::rand::prelude::ThreadRng;
 
 pub fn run_cmd(args: &ArgMatches) -> () {
     let db_path = match args.value_of("dbpath") {
@@ -39,12 +40,6 @@ pub fn run_cmd(args: &ArgMatches) -> () {
     println!("chains: {}\n largest n: {}", chains.len(), largest_n);
 
     let mut rng = rand::thread_rng();
-    let start = match chains.iter().choose(&mut rng) {
-        Some((_, v)) => v,
-        None => {
-            panic!("couldnt choose a random starting chain")
-        }
-    };
 
     let mut sentence = String::new();
 
@@ -52,16 +47,7 @@ pub fn run_cmd(args: &ArgMatches) -> () {
     // matches across all chains (stack should be as deep as the largest n-gram size), and select
     // a random one from those that provide an answer.
     let mut stack: VecDeque<String> = VecDeque::with_capacity(largest_n as usize);
-
-    // our first entries to the stack will be a random key from our random starting chain & any
-    // corresponding words. If we overflow, so be it.
-    let (k, v) = start.iter().choose(&mut rng).unwrap().unwrap();
-
-    let x: Vec<String> = bincode::deserialize(&k).unwrap();
-    x.into_iter().for_each(|w| stack.push_front(w));
-
-    let y: HashSet<String> = bincode::deserialize(&v).unwrap();
-    y.into_iter().for_each(|w| stack.push_front(w));
+    seed_stack(&chains, &mut rng, &mut stack);
 
     println!("initial stack: {:?}", stack);
 
@@ -76,8 +62,9 @@ pub fn run_cmd(args: &ArgMatches) -> () {
                 len += 1
             }
         } else if stack.len() <= 0 {
-            eprintln!("ran out of words");
-            break;
+            sentence.remove(sentence.len()-1);
+            sentence.push_str(". ");
+            seed_stack(&chains, &mut rng, &mut stack);
         }
 
         let k = stack.len() as u32;
@@ -104,8 +91,27 @@ pub fn run_cmd(args: &ArgMatches) -> () {
         }
     }
 
-
     println!("output:\n\n{}", sentence);
+}
+
+
+fn seed_stack(chains: &HashMap<u32, Tree>, rng: &mut ThreadRng, stack: &mut VecDeque<String>) {
+    // choose a random chain
+    let start = match chains.iter().choose(rng) {
+        Some((_, v)) => v,
+        None => {
+            panic!("couldnt choose a random starting chain")
+        }
+    };
+
+    // choose a random kv pair from said chain
+    let (k, v) = start.iter().choose(rng).unwrap().unwrap();
+
+    let x: Vec<String> = bincode::deserialize(&k).unwrap();
+    x.into_iter().for_each(|w| stack.push_front(w));
+
+    let y: HashSet<String> = bincode::deserialize(&v).unwrap();
+    y.into_iter().for_each(|w| stack.push_front(w));
 }
 
 fn u32_to_ivec(x: u32) -> IVec {
