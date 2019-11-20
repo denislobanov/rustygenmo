@@ -1,5 +1,8 @@
 extern crate clap;
 
+
+#[macro_use]
+extern crate partial_application;
 mod train;
 
 use clap::{App, Arg};
