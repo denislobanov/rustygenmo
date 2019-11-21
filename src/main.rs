@@ -5,6 +5,7 @@ extern crate clap;
 extern crate partial_application;
 mod train;
 mod generate;
+mod crawl;
 
 use clap::{App, Arg};
 

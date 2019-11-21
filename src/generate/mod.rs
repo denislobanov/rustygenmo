@@ -73,7 +73,7 @@ pub fn run_cmd(args: &ArgMatches) -> () {
                 match t.get(bincode::serialize(&stack).unwrap()).unwrap() {
                     Some(vec) => {
                         let words: HashSet<String> = bincode::deserialize(&vec).unwrap();
-                        words.iter().for_each(|w| stack.push_front(w.to_ascii_lowercase()));
+                        words.iter().for_each(|w| stack.push_front(w.to_string()));
                     }
                     None => {
                         sentence.push_str(&stack.pop_back().unwrap());
@@ -86,7 +86,8 @@ pub fn run_cmd(args: &ArgMatches) -> () {
                 // todo reduce key and try again. for now just bail
                 sentence.push_str(&stack.pop_back().unwrap());
                 sentence.push_str(" ");
-                len += 1
+                len += 1;
+                eprintln!("no chain found for key {} stack is now {}", k, stack.len())
             }
         }
     }
