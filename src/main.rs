@@ -1,8 +1,8 @@
 extern crate clap;
 
-
 #[macro_use]
 extern crate partial_application;
+
 mod train;
 mod generate;
 mod crawl;
@@ -68,6 +68,23 @@ fn main() {
                 .short("l")
                 .help("how many words to generate")
                 .takes_value(true)))
+
+        // getting data
+        .subcommand(App::new("crawl")
+            .about("web crawler")
+            .arg(Arg::with_name("fanfiction")
+                .short("f")
+                .takes_value(false)
+                .conflicts_with("dailymail"))
+            .arg(Arg::with_name("dailymail")
+                .short("d")
+                .takes_value(false)
+                .conflicts_with("fanfiction"))
+            .arg(Arg::with_name("seed")
+                .short("s")
+                .help("seed url")
+                .takes_value(true)
+                .required(true)))
 
         .get_matches();
 
