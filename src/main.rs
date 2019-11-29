@@ -74,15 +74,22 @@ fn main() {
             .about("web crawler")
             .arg(Arg::with_name("fanfiction")
                 .short("f")
+                .help("crawl fanfiction")
                 .takes_value(false)
                 .conflicts_with("dailymail"))
             .arg(Arg::with_name("dailymail")
                 .short("d")
+                .help("crawl daily mail")
                 .takes_value(false)
                 .conflicts_with("fanfiction"))
             .arg(Arg::with_name("seed")
-                .short("s")
+                .short("u")
                 .help("seed url")
+                .takes_value(true)
+                .required(true))
+            .arg(Arg::with_name("path")
+                .short("p")
+                .help("path to store results in")
                 .takes_value(true)
                 .required(true)))
 
@@ -92,6 +99,7 @@ fn main() {
         ("analyse", Some(args)) => train::analyse_cmd(args),
         ("train", Some(args)) => train::train_cmd(args),
         ("generate", Some(args)) => generate::run_cmd(args),
+        ("crawl", Some(args)) => crawl::crawl_cmd(args),
         _ => eprintln!("{}", matches.usage())
     }
 }

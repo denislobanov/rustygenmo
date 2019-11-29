@@ -1,76 +1,171 @@
 extern crate isahc;
-extern crate soup;
+extern crate url;
 
 use scraper::{Html, Selector};
-use self::isahc::HttpClient;
+use self::isahc::{HttpClient, ResponseExt};
 use crate::crawl::Crawler;
+use url::Url;
+use std::sync::mpsc::Sender;
+use crate::crawl::store::Message;
+use self::url::ParseError;
 
 pub struct FanFiction {
-    path: String,
     client: HttpClient,
+//    tx: Sender<Message>,
+
+    // Selectors
+    content_sel: Selector,
+
+    // Genre of books
+    books_sel: Selector,
+    link_sel: Selector,
+
+    // Book page
+    title_sel: Selector,
+    next_sel: Selector,
+    chapter_sel: Selector,
+}
+
+pub fn new() -> FanFiction {
+    return FanFiction {
+        client: HttpClient::new().unwrap(),
+        content_sel: Selector::parse(r#"#content_parent #content_wrapper #content_wrapper_inner"#).unwrap(),
+
+        books_sel: Selector::parse(r#"div.z-list.zhover.zpointer a.stitle"#).unwrap(),
+        link_sel: Selector::parse("center a").unwrap(),
+
+        title_sel: Selector::parse(r#"#profile_top b.xcontrast_txt"#).unwrap(),
+        next_sel: Selector::parse(r#"span button.btn"#).unwrap(),
+        chapter_sel: Selector::parse(r#"#storytext"#).unwrap(),
+
+    };
 }
 
 impl Crawler for FanFiction {
     // breadth first crawl
-    fn crawl(&self, seed: String) -> () {
+    fn crawl(&self, seed: &str) -> () {
         let mut book_urls: Vec<String> = Vec::new();
 
-        let mut next = seed;
-        while let Some(n) = self.crawl_genre(next, &mut book_urls) {
+        // iterate through listings in a genre to build a list of books
+        let mut next: String = seed.to_string();
+        while let Some(n) = self.crawl_genre(&next, &mut book_urls) {
             if n == seed {
                 break;
             }
             next = n;
+            //DEBUG
+            println!("next url to scrap: {} (not continuing)", next);
+            break;
         }
 
-        // build a list of links to continue crawl
+        println!("downloading books");
 
-        // build a list of link for content download
+        // iterate through all chapters in each book, saving the content
+        book_urls.into_iter().for_each(|url| self.crawl_book(url));
     }
 }
 
 impl FanFiction {
     // Get all book urls in a genre, return next url to crawl
-    fn crawl_genre(&self, url: String, book_urls: &mut Vec<String>) -> Some<String> {
-        let result = self.client.get(url).unwrap();
-        let doc = Html::parse_document(&result.body().text().unwrap());
+    fn crawl_genre(&self, url: &String, book_urls: &mut Vec<String>) -> Option<String> {
+        let mut result = self.client.get(url).unwrap();
+        if !result.status().is_success() {
+            eprintln!("request to {} resulted in {}", url, result.status());
+            return None;
+        }
 
-        // content wrapper contains both titles & links to next pages,
-        let cont_sel = Selector::parse("div id=\"content_wrapper_inner\"").unwrap();
+        let text = result.text().unwrap();
+        let doc = Html::parse_document(&text);
+        let content = doc.select(&self.content_sel).next().unwrap();
 
         // descending selectors for books
-        let books_sel = Selector::parse("div class=\"z-list zhover zpointer \"").unwrap();
-        let book_sel = Selector::parse("a class=\"stitle\"").unwrap();
-        let books = doc.select(&cont_sel).next().unwrap()
-            .select(&books_sel).next().unwrap();
+        let base = base_url(&url).unwrap();
 
-        for book in books.select(&book_sel) {
-            book_urls.push(book.value().name().to_string());
+        for book in content.select(&self.books_sel) {
+            let book_url = book.value().attr("href").unwrap().to_string();
+            book_urls.push(base.join(&book_url).unwrap().into_string());
         }
 
         // descending selectors for getting next page url's
-        let links_sel = Selector::parse("center").unwrap();
-        let link_sel = Selector::parse("a").unwrap();
-        let link = doc.select(&cont_sel).next().unwrap()
-            .select(&links_sel).next().unwrap()
-            .select(&link_sel).next().unwrap();
+        let link = content.select(&self.link_sel).next().unwrap()
+            .value().attr("href").unwrap().to_string();
 
-        return Some(link.value().name().to_string());
+        print!(".");
+        return Some(base.join(&link).unwrap().into_string());
     }
 
-    fn crawl_book(&self, url: String) -> Some<String> {
-        let result = self.client.get(url).unwrap();
-        let doc = Html::parse_document(&result.body().text().unwrap());
+    fn crawl_book(&self, url: String) {
+        let mut previous: String = "".parse().unwrap();
+        let mut next: String = url;
 
-        let cont_sel = Selector::parse("div id=\"content_wrapper_inner\"").unwrap();
+        while let Some(n) = self.crawl_chapter(&next) {
+            if n == previous {
+                break;
+            }
+            previous = next;
+            next = n;
 
-        let prof_sel = Selector::parse("div id=\"profile_top\"").unwrap();
-        let title_sel = Selector::parse("b class=\"xcontrast_txt\"").unwrap();
-        let next_sel = Selector::parse("button class=\"btn\" type=\"BUTTON\"").unwrap();
-        let chapter_sel = Selector::parse("div id=\"storytext\" class=\"storytext xcontrast_txt nocopy\"").unwrap();
-
-
-
-
+            //DEBUG
+            println!("previous={} next={}", previous, next);
+            break
+        }
     }
+
+    fn crawl_chapter(&self, url: &String) -> Option<String> {
+        println!("url={}", url);
+
+        let mut result = self.client.get(url).unwrap();
+        if !result.status().is_success() {
+            eprintln!("request to {} resulted in {}", url, result.status());
+            return None;
+        }
+        let doc = Html::parse_document(&result.text().unwrap());
+
+        let content = doc.select(&self.content_sel).next().unwrap();
+        let title = content.select(&self.title_sel).next().unwrap()
+            .inner_html();
+        let text = content.select(&self.chapter_sel).next().unwrap()
+            .inner_html();
+
+        // save
+        let message = Message {
+            title,
+            text,
+        };
+        println!("{:?}", message);
+//        self.tx.send(message);
+
+        // build next url
+        let next = match content.select(&self.next_sel).next() {
+            Some(n) => n.value().attr("onclick").unwrap()
+                .replace("self.location=", "")
+                .replace("'", "")
+                .trim()
+                .to_string(),
+            None => {
+                return None;
+            }
+        };
+
+        println!("next={:?}", next);
+
+        let base = base_url(&url).unwrap();
+        return Some(base.join(&next).unwrap().into_string());
+    }
+}
+
+fn base_url(url: &str) -> Result<Url, ParseError> {
+    let mut base = Url::parse(url)?;
+
+    match base.path_segments_mut() {
+        Ok(mut path) => {
+            path.clear();
+        }
+        Err(_) => {
+            return Err(ParseError::EmptyHost);
+        }
+    }
+
+    base.set_query(None);
+    return Ok(base)
 }
