@@ -1,17 +1,20 @@
 extern crate isahc;
 extern crate url;
 
-use scraper::{Html, Selector};
-use self::isahc::{HttpClient, ResponseExt};
-use crate::crawl::Crawler;
-use url::Url;
 use std::sync::mpsc::Sender;
+
+use scraper::{Html, Selector};
+use url::Url;
+
+use crate::crawl::Crawler;
 use crate::crawl::store::Message;
+
+use self::isahc::{HttpClient, ResponseExt};
 use self::url::ParseError;
 
 pub struct FanFiction {
     client: HttpClient,
-//    tx: Sender<Message>,
+    tx: Sender<Option<Message>>,
 
     // Selectors
     content_sel: Selector,
@@ -26,11 +29,12 @@ pub struct FanFiction {
     chapter_sel: Selector,
 }
 
-pub fn new() -> FanFiction {
+pub fn new(tx: Sender<Option<Message>>) -> FanFiction {
     return FanFiction {
         client: HttpClient::new().unwrap(),
-        content_sel: Selector::parse(r#"#content_parent #content_wrapper #content_wrapper_inner"#).unwrap(),
+        tx,
 
+        content_sel: Selector::parse(r#"#content_parent #content_wrapper #content_wrapper_inner"#).unwrap(),
         books_sel: Selector::parse(r#"div.z-list.zhover.zpointer a.stitle"#).unwrap(),
         link_sel: Selector::parse("center a").unwrap(),
 
@@ -61,7 +65,10 @@ impl Crawler for FanFiction {
         println!("downloading books");
 
         // iterate through all chapters in each book, saving the content
-        book_urls.into_iter().for_each(|url| self.crawl_book(url));
+        book_urls.into_iter().take(1).for_each(|url| self.crawl_book(url));
+
+        // tell store that we've finished
+        self.tx.send(None).unwrap();
     }
 }
 
@@ -125,15 +132,15 @@ impl FanFiction {
         let title = content.select(&self.title_sel).next().unwrap()
             .inner_html();
         let text = content.select(&self.chapter_sel).next().unwrap()
-            .inner_html();
+            .text().into_iter()
+            .fold(String::new(), |a, x| a+x);
 
         // save
         let message = Message {
             title,
             text,
         };
-        println!("{:?}", message);
-//        self.tx.send(message);
+        self.tx.send(Some(message)).unwrap();
 
         // build next url
         let next = match content.select(&self.next_sel).next() {

@@ -1,3 +1,6 @@
+use std::sync::mpsc::channel;
+use std::thread::spawn;
+
 use clap::ArgMatches;
 
 mod fanfiction;
@@ -10,10 +13,18 @@ trait Crawler {
 pub fn crawl_cmd(args: &ArgMatches) -> () {
     let url = args.value_of("seed").unwrap();
     let path = args.value_of("path").unwrap();
+    let store = store::new(path);
+
+    // Start store thread
+    let (msg_tx, msg_rx) = channel();
+    let (stop_tx, stop_rx) = channel();
+    let h = spawn(move || {
+        store.run(msg_rx, stop_rx);
+    });
 
     if args.is_present("fanfiction") {
         println!("crawling fanfiction");
-        let crawler = fanfiction::new();
+        let crawler = fanfiction::new(msg_tx);
         crawler.crawl(url);
 
     } else if args.is_present("dailymail") {
@@ -21,4 +32,6 @@ pub fn crawl_cmd(args: &ArgMatches) -> () {
     } else {
         panic!("you must choose one of [fanfiction|dailymail]");
     }
+
+    h.join();
 }
