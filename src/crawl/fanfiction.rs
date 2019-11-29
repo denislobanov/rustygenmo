@@ -58,14 +58,14 @@ impl Crawler for FanFiction {
             }
             next = n;
             //DEBUG
-            println!("next url to scrap: {} (not continuing)", next);
-            break;
+//            println!("next url to scrap: {} (not continuing)", next);
+//            break;
         }
 
         println!("downloading books");
 
         // iterate through all chapters in each book, saving the content
-        book_urls.into_iter().take(1).for_each(|url| self.crawl_book(url));
+        book_urls.into_iter().for_each(|url| self.crawl_book(url));
 
         // tell store that we've finished
         self.tx.send(None).unwrap();
@@ -113,8 +113,8 @@ impl FanFiction {
             next = n;
 
             //DEBUG
-            println!("previous={} next={}", previous, next);
-            break
+//            println!("previous={} next={}", previous, next);
+//            break
         }
     }
 
