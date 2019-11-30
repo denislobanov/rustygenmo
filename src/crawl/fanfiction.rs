@@ -1,21 +1,24 @@
 extern crate isahc;
 extern crate url;
 
-use std::sync::mpsc::{Receiver, Sender};
-use std::thread::{JoinHandle, sleep, spawn};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+use std::thread::{JoinHandle, sleep};
+use std::thread;
 use std::time::Duration;
 
 use scraper::{Html, Selector};
 use url::Url;
 
-use crate::crawl::Crawler;
-use crate::crawl::store::Message;
+use crate::crawl::store;
 
 use self::isahc::{HttpClient, ResponseExt};
 use self::url::ParseError;
 
-pub struct FanFiction {
-    client: HttpClient, //thread safe
+struct FanFiction {
+    client: HttpClient,
+    //thread safe
+    store: store::Store,
 
     // Selectors
     content_sel: Selector,
@@ -30,29 +33,52 @@ pub struct FanFiction {
     chapter_sel: Selector,
 }
 
-fn new() -> FanFiction {
-    return FanFiction {
-        client: HttpClient::new().unwrap(),
+struct Worker {
+    thread: Option<JoinHandle<()>>,
+}
 
-        content_sel: Selector::parse(r#"#content_parent #content_wrapper #content_wrapper_inner"#).unwrap(),
-        books_sel: Selector::parse(r#"div.z-list.zhover.zpointer a.stitle"#).unwrap(),
-        link_sel: Selector::parse("center a").unwrap(),
+enum Message {
+    Crawl(String),
+    Terminate,
+}
 
-        title_sel: Selector::parse(r#"#profile_top b.xcontrast_txt"#).unwrap(),
-        next_sel: Selector::parse(r#"span button.btn"#).unwrap(),
-        chapter_sel: Selector::parse(r#"#storytext"#).unwrap(),
+impl Worker {
+    pub fn new(queue: Arc<Mutex<VecDeque<Message>>>, processor: Arc<FanFiction>) -> Worker {
+        let t: JoinHandle<()> = thread::spawn(move || {
+            loop {
+                if let Ok(ref mut q) = queue.try_lock() {
+                    match q.pop_back() {
+                        Some(Message::Crawl(url)) => processor.crawl_book(url),
+                        Some(Message::Terminate) => return,
 
-    };
+                        //queue is drained
+                        None => thread::sleep(Duration::from_secs(1)),
+                    }
+                }
+
+                thread::sleep(Duration::from_millis(200));
+            }
+        });
+
+        return Worker {
+            thread: Some(t),
+        };
+    }
 }
 
 // breadth first crawl
-pub fn crawl(seed: &str, msg_tx: Sender<Option<Message>>) -> () {
-    // Run multiple crawlers in parallel
-    let threads = 3;
-    let mut crawlers: Vec<FanFiction> = Vec::with_capacity(threads);
+pub fn crawl(seed: &str, store: store::Store) -> () {
+    let threads: usize = 3;
 
-    for i in 0..threads {
-        crawlers[i] = new();
+    // Run multiple crawlers in parallel
+    let queue: Arc<Mutex<VecDeque<Message>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let processor = Arc::new(FanFiction::new(store));
+
+
+    // Launch threads
+    let mut crawlers = Vec::with_capacity(threads);
+    for _ in 0..threads {
+        crawlers.push(Worker::new(queue.clone(), processor.clone()));
     }
 
     // iterate through listings in a genre to build a list of books. Just use 1 crawler for this
@@ -60,8 +86,8 @@ pub fn crawl(seed: &str, msg_tx: Sender<Option<Message>>) -> () {
 
     let mut previous: String = "".parse().unwrap();
     let mut next: String = seed.to_string();
-    while let Some(n) = crawlers[0].crawl_genre(&next, &mut book_urls) {
-        if n == previous{
+    while let Some(n) = processor.crawl_genre(&next, &mut book_urls) {
+        if n == previous {
             break;
         }
         previous = next;
@@ -72,19 +98,6 @@ pub fn crawl(seed: &str, msg_tx: Sender<Option<Message>>) -> () {
     }
     println!("downloading books");
 
-    // instantiate crawler threads
-//    let mut hs = Vec::with_capacity(threads);
-    let mut chans = Vec::with_capacity(threads);
-
-    for i in 0..threads {
-        let (url_tx, url_rx) = std::sync::mpsc::channel();
-        chans[i] = url_tx;
-
-        let h = spawn(move || {
-            crawlers[i].crawl_thread(url_rx, msg_tx.clone());
-        });
-    }
-
     // iterate through all chapters in each book, saving the content
     book_urls.into_iter()
         .enumerate()
@@ -94,20 +107,36 @@ pub fn crawl(seed: &str, msg_tx: Sender<Option<Message>>) -> () {
                 sleep(Duration::from_secs(3));
             }
 
-            chans[i%threads].send(Some(url)).unwrap();
+            queue.lock().unwrap().push_front(Message::Crawl(url));
         });
 
-    // tell store that we've finished
-    msg_tx.send(None).unwrap();
-
     // stop the threads
-    for i in 0..3 {
-        chans[i].send(None).unwrap();
-//        hs[i].join();
+    println!("terminating crawlers");
+    for _ in 0..threads {
+        queue.lock().unwrap().push_front(Message::Terminate);
+    }
+    for i in 0..threads {
+        crawlers[i].thread.take().unwrap().join();
     }
 }
 
 impl FanFiction {
+    pub fn new(store: store::Store) -> FanFiction {
+        return FanFiction {
+            client: HttpClient::new().unwrap(),
+            store,
+
+            content_sel: Selector::parse(r#"#content_parent #content_wrapper #content_wrapper_inner"#).unwrap(),
+            books_sel: Selector::parse(r#"div.z-list.zhover.zpointer a.stitle"#).unwrap(),
+            link_sel: Selector::parse("center a").unwrap(),
+
+            title_sel: Selector::parse(r#"#profile_top b.xcontrast_txt"#).unwrap(),
+            next_sel: Selector::parse(r#"span button.btn"#).unwrap(),
+            chapter_sel: Selector::parse(r#"#storytext"#).unwrap(),
+
+        };
+    }
+
     // Get all book urls in a genre, return next url to crawl
     fn crawl_genre(&self, url: &String, book_urls: &mut Vec<String>) -> Option<String> {
         let mut result = self.client.get(url).unwrap();
@@ -135,21 +164,11 @@ impl FanFiction {
         return Some(base.join(&link).unwrap().into_string());
     }
 
-    fn crawl_thread(&self, url_rx: Receiver<Option<String>>, msg_tx: Sender<Option<Message>>) {
-        loop {
-            match url_rx.recv().unwrap() {
-                Some(url) => self.crawl_book(url, &msg_tx),
-                _ => return,
-            }
-
-        }
-    }
-
-    fn crawl_book(&self, url: String, msg_tx: &Sender<Option<Message>>) {
+    fn crawl_book(&self, url: String) {
         let mut previous: String = "".parse().unwrap();
         let mut next: String = url;
 
-        while let Some(n) = self.crawl_chapter(&next, msg_tx) {
+        while let Some(n) = self.crawl_chapter(&next) {
             if n == previous {
                 break;
             }
@@ -162,7 +181,7 @@ impl FanFiction {
         }
     }
 
-    fn crawl_chapter(&self, url: &String, msg_tx: &Sender<Option<Message>>) -> Option<String> {
+    fn crawl_chapter(&self, url: &String) -> Option<String> {
 //        println!("url={}", url);
 
         let mut result = self.client.get(url).unwrap();
@@ -182,11 +201,11 @@ impl FanFiction {
             .fold(String::new(), |a, x| a + x);
 
         // save
-        let message = Message {
+        let message = store::Message {
             title,
             text,
         };
-        msg_tx.send(Some(message)).unwrap();
+        self.store.save(message);
 
         // build next url
         let next = match content.select(&self.next_sel).next() {

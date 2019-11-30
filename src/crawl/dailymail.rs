@@ -13,8 +13,6 @@ use crate::crawl::fanfiction::base_url;
 use crate::crawl::store::Message;
 
 use self::isahc::{HttpClient, ResponseExt};
-use self::url::ParseError;
-use std::error::Error;
 
 pub struct DailyMail {
     client: HttpClient,
@@ -164,8 +162,6 @@ impl DailyMail {
         }
         let text = result.text().unwrap();
         let doc = Html::parse_document(&text);
-
-        let base = base_url(&url).unwrap();
 
         let article = doc.select(&self.article_content_sel).next()?;
         let mut title = match article.select(&self.title_sel).next() {

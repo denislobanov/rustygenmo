@@ -20,7 +20,7 @@ pub struct Message {
 }
 
 impl Store {
-    pub fn run(&self, msg_rx: Receiver<Option<Message>>, stop_rx: Receiver<bool>) {
+    pub fn run(&self, msg_rx: Receiver<Option<Message>>) {
         loop {
             match msg_rx.recv().unwrap() {
                 Some(m) => self.save(m),
@@ -29,7 +29,7 @@ impl Store {
         }
     }
 
-    fn save(&self, msg: Message) {
+    pub fn save(&self, msg: Message) {
         let filename = msg.title.trim()
             .replace(" ", "_")
             .replace("/", "")
