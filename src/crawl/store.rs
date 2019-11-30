@@ -33,7 +33,7 @@ impl Store {
         let filename = msg.title.trim().replace(" ", "_");
         let p = Path::new(&self.path).join(&filename);
 
-        println!("path is: {:?}", p);
+//        println!("path is: {:?}", p);
         if !p.is_file() {
             File::create(&p).unwrap();
         }

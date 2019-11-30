@@ -2,6 +2,8 @@ extern crate isahc;
 extern crate url;
 
 use std::sync::mpsc::Sender;
+use std::thread::sleep;
+use std::time::Duration;
 
 use scraper::{ElementRef, Html, Selector};
 use url::Url;
@@ -12,8 +14,7 @@ use crate::crawl::store::Message;
 
 use self::isahc::{HttpClient, ResponseExt};
 use self::url::ParseError;
-use std::thread::sleep;
-use std::time::Duration;
+use std::error::Error;
 
 pub struct DailyMail {
     client: HttpClient,
@@ -37,6 +38,7 @@ pub struct DailyMail {
     article_content_sel: Selector,
     title_sel: Selector,
     body_sel: Selector,
+    p_sel: Selector,
 }
 
 pub fn new(tx: Sender<Option<Message>>) -> DailyMail {
@@ -53,10 +55,10 @@ pub fn new(tx: Sender<Option<Message>>) -> DailyMail {
         content_sel: Selector::parse("div.alpha.debate.sitemap").unwrap(),
         article_sel: Selector::parse("ul.archive-articles.debate.link-box").unwrap(),
 
-        article_content_sel: Selector::parse("#js-article-text.wide.heading-tag-switch").unwrap(),
-        title_sel: Selector::parse("h2").unwrap(),
+        article_content_sel: Selector::parse("#js-article-text").unwrap(),
+        title_sel: Selector::parse("h1,h2").unwrap(),
         body_sel: Selector::parse(r#"div[itemprop="articleBody""#).unwrap(),
-
+        p_sel: Selector::parse("p").unwrap(),
     };
 }
 
@@ -153,24 +155,29 @@ impl DailyMail {
         return links;
     }
 
-    fn crawl_article(&self, url: &String) -> () {
+    fn crawl_article(&self, url: &String) -> Option<()> {
         println!("fetching {}", url);
         let mut result = self.client.get(url).unwrap();
         if !result.status().is_success() {
             eprintln!("request to crawl article {} resulted in {}", url, result.status());
-            return;
+            return None;
         }
         let text = result.text().unwrap();
         let doc = Html::parse_document(&text);
 
         let base = base_url(&url).unwrap();
 
-        let article = doc.select(&self.article_content_sel).next().unwrap();
-        let mut title = article.select(&self.title_sel).next().unwrap()
-            .inner_html();
-        let text = article.select(&self.body_sel).next().unwrap()
-            .text().into_iter()
+        let article = doc.select(&self.article_content_sel).next()?;
+        let mut title = match article.select(&self.title_sel).next() {
+            Some(t) => t.inner_html(),
+            None => url.replace("/", ""),
+        };
+
+        let text: String = article.select(&self.body_sel).next()?
+            .select(&self.p_sel).into_iter()
+            .flat_map(|x| x.text().into_iter())
             .fold(String::new(), |a, x| a + x);
+
 
         // reduce title length a little
         if title.len() > 10 {
@@ -181,7 +188,7 @@ impl DailyMail {
             title,
             text,
         };
-        self.tx.send(Some(message)).unwrap();
+        Some(self.tx.send(Some(message)).unwrap())
     }
 }
 
