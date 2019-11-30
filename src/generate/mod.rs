@@ -13,7 +13,7 @@ pub fn run_cmd(args: &ArgMatches) -> () {
         Some(v) => v,
         None => "test",
     };
-    let count = match args.value_of("count") {
+    let count = match args.value_of("length") {
         Some(v) => v.parse::<usize>().unwrap(),
         None => 10,
     };
@@ -87,11 +87,12 @@ pub fn run_cmd(args: &ArgMatches) -> () {
                 sentence.push_str(&stack.pop_back().unwrap());
                 sentence.push_str(" ");
                 len += 1;
-                eprintln!("no chain found for key {} stack is now {}", k, stack.len())
+                println!("no chain found for key {} stack is now {}", k, stack.len())
             }
         }
     }
 
+    println!("finishing run, stack is: {:?}, len: {}", stack, len);
     println!("output:\n\n{}", sentence);
 }
 

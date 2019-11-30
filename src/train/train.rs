@@ -127,7 +127,7 @@ fn add_to_chain(word: String, old: Option<&[u8]>) -> Option<Vec<u8>> {
     let set: HashSet<String> = match old {
         Some(b) => {
             let mut s: HashSet<String> = bincode::deserialize(b.try_into().unwrap()).unwrap();
-            println!("INSERTING TO EXISTING {:?} <- {}", s, word);
+//            println!("INSERTING TO EXISTING {:?} <- {}", s, word);
             s.insert(word);
             s
         }
