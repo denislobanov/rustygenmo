@@ -45,18 +45,21 @@ enum Message {
 impl Worker {
     pub fn new(queue: Arc<Mutex<VecDeque<Message>>>, processor: Arc<FanFiction>) -> Worker {
         let t: JoinHandle<()> = thread::spawn(move || {
+            let mut sleep = false;
             loop {
-                if let Ok(ref mut q) = queue.try_lock() {
+                if let Ok(ref mut q) = queue.lock() {
                     match q.pop_back() {
                         Some(Message::Crawl(url)) => processor.crawl_book(url),
                         Some(Message::Terminate) => return,
 
                         //queue is drained
-                        None => thread::sleep(Duration::from_secs(1)),
+                        None => sleep = true,
                     }
                 }
 
-                thread::sleep(Duration::from_millis(80));
+                if sleep {
+                    thread::sleep(Duration::from_secs(1));
+                }
             }
         });
 
@@ -68,7 +71,7 @@ impl Worker {
 
 // breadth first crawl
 pub fn crawl(seed: &str, store: store::Store) -> () {
-    let threads: usize = 2;
+    let threads: usize = 6;
 
     // Run multiple crawlers in parallel
     let queue: Arc<Mutex<VecDeque<Message>>> = Arc::new(Mutex::new(VecDeque::new()));
@@ -118,26 +121,15 @@ pub fn crawl(seed: &str, store: store::Store) -> () {
 
     println!("\ncrawling..");
     loop {
-        if let Ok(ref mut q) = queue.try_lock() {
-            match q.pop_back() {
-                Some(Message::Crawl(url)) => processor.crawl_book(url),
-                _ => break,
+        {
+            if let Some(msg)= queue.lock().unwrap().pop_back() {
+                match msg {
+                    Message::Crawl(url) => processor.crawl_book(url),
+                    Message::Terminate => break,
+                }
             }
         }
-
-        thread::sleep(Duration::from_millis(100));
     }
-//
-//    loop {
-//        {
-//            if let Some(msg)= queue.lock().unwrap().pop_back() {
-//                match msg {
-//                    Message::Crawl(url) => processor.crawl_book(url),
-//                    Message::Terminate => break,
-//                }
-//            }
-//        }
-//    }
 
     println!("terminating crawlers");
     for i in 0..threads {
