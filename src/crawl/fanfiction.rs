@@ -11,6 +11,8 @@ use crate::crawl::store::Message;
 
 use self::isahc::{HttpClient, ResponseExt};
 use self::url::ParseError;
+use std::thread::sleep;
+use std::time::Duration;
 
 pub struct FanFiction {
     client: HttpClient,
@@ -51,12 +53,15 @@ impl Crawler for FanFiction {
         let mut book_urls: Vec<String> = Vec::new();
 
         // iterate through listings in a genre to build a list of books
+        let mut previous: String = "".parse().unwrap();
         let mut next: String = seed.to_string();
         while let Some(n) = self.crawl_genre(&next, &mut book_urls) {
-            if n == seed {
+            if n == previous{
                 break;
             }
+            previous = next;
             next = n;
+
             //DEBUG
 //            println!("next url to scrap: {} (not continuing)", next);
 //            break;
@@ -65,7 +70,15 @@ impl Crawler for FanFiction {
         println!("downloading books");
 
         // iterate through all chapters in each book, saving the content
-        book_urls.into_iter().for_each(|url| self.crawl_book(url));
+        book_urls.into_iter()
+            .enumerate()
+            .for_each(|(i, url)| {
+                if i % 100 == 0 {
+                    println!("sleeping..");
+                    sleep(Duration::from_secs(3));
+                }
+                self.crawl_book(url)
+            });
 
         // tell store that we've finished
         self.tx.send(None).unwrap();
@@ -97,7 +110,6 @@ impl FanFiction {
         let link = content.select(&self.link_sel).next().unwrap()
             .value().attr("href").unwrap().to_string();
 
-        print!(".");
         return Some(base.join(&link).unwrap().into_string());
     }
 
@@ -119,7 +131,7 @@ impl FanFiction {
     }
 
     fn crawl_chapter(&self, url: &String) -> Option<String> {
-        println!("url={}", url);
+//        println!("url={}", url);
 
         let mut result = self.client.get(url).unwrap();
         if !result.status().is_success() {
@@ -154,8 +166,7 @@ impl FanFiction {
             }
         };
 
-        println!("next={:?}", next);
-
+//        println!("next={:?}", next);
         let base = base_url(&url).unwrap();
         return Some(base.join(&next).unwrap().into_string());
     }

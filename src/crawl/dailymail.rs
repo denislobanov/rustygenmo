@@ -12,6 +12,8 @@ use crate::crawl::store::Message;
 
 use self::isahc::{HttpClient, ResponseExt};
 use self::url::ParseError;
+use std::thread::sleep;
+use std::time::Duration;
 
 pub struct DailyMail {
     client: HttpClient,
@@ -63,7 +65,14 @@ impl Crawler for DailyMail {
         self.crawl_archive(&seed.to_string()).into_iter()
             .flat_map(|m| self.crawl_month(&m)).into_iter()
             .flat_map(|d| self.crawl_day(&d)).into_iter()
-            .for_each(|x| self.crawl_article(&x));
+            .enumerate()
+            .for_each(|(i, url)| {
+                if i % 100 == 0 {
+                    println!("sleeping");
+                    sleep(Duration::from_secs(3));
+                }
+                self.crawl_article(&url);
+            });
 
         println!("done!");
         self.tx.send(None).unwrap();

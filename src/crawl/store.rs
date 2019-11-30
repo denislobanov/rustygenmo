@@ -33,11 +33,9 @@ impl Store {
         let filename = msg.title.trim().replace(" ", "_");
         let p = Path::new(&self.path).join(&filename);
 
-        let mut append = false;
         println!("path is: {:?}", p);
         if !p.is_file() {
             File::create(&p).unwrap();
-            append = true;
         }
 
         let mut file = OpenOptions::new()
@@ -45,8 +43,9 @@ impl Store {
             .open(&p)
             .unwrap();
 
-        if append {
-            let _ = std::writeln!(file, "\n");
+        let mut text = msg.text.trim().to_string();
+        while text.starts_with("\n") {
+            text = text[1..text.len()].to_string();
         }
 
         match file.write_all(msg.text.trim().as_bytes()) {
