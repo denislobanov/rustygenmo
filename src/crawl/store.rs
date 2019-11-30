@@ -1,7 +1,6 @@
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
-use std::sync::mpsc::Receiver;
 
 pub struct Store {
     path: String,
@@ -9,28 +8,20 @@ pub struct Store {
 
 pub fn new(path: &str) -> Store {
     return Store {
-        path: path.to_string()+"/",
+        path: path.to_string() + "/",
     };
 }
 
 #[derive(Debug)]
-pub struct Message {
+pub struct Chapter {
     pub title: String,
     pub text: String,
 }
 
 impl Store {
-    pub fn run(&self, msg_rx: Receiver<Option<Message>>) {
-        loop {
-            match msg_rx.recv().unwrap() {
-                Some(m) => self.save(m),
-                None => return,
-            }
-        }
-    }
-
-    pub fn save(&self, msg: Message) {
+    pub fn save(&self, msg: Chapter) {
         let filename = msg.title.trim()
+            .replace("\n", "⏺")
             .replace(" ", "_")
             .replace("/", "")
             .replace("?", "")

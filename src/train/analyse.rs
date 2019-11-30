@@ -12,7 +12,7 @@ fn clean_word(w: &str) -> String {
 pub fn create_corpus(corpus: &str) -> Vec<String> {
     return corpus
         // handle no whitespace after punctuation
-        .split(|c: char| c.is_whitespace() || c == '.')
+        .split(|c: char| c.is_whitespace() || c == '.' || c == '⏺')
         // clean up words
         .map(clean_word)
         // remove empty items

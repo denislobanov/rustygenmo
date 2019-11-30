@@ -1,22 +1,22 @@
 extern crate isahc;
 extern crate url;
 
-use std::sync::mpsc::Sender;
-use std::thread::sleep;
+use std::sync::Arc;
+use std::thread;
 use std::time::Duration;
 
 use scraper::{ElementRef, Html, Selector};
 use url::Url;
 
-use crate::crawl::Crawler;
+use crate::crawl::{pool, store};
 use crate::crawl::fanfiction::base_url;
-use crate::crawl::store::Message;
+use crate::crawl::store::Chapter;
 
 use self::isahc::{HttpClient, ResponseExt};
 
 pub struct DailyMail {
     client: HttpClient,
-    tx: Sender<Option<Message>>,
+    store: store::Store,
 
     // Selectors
     link_sel: Selector,
@@ -39,47 +39,50 @@ pub struct DailyMail {
     p_sel: Selector,
 }
 
-pub fn new(tx: Sender<Option<Message>>) -> DailyMail {
-    return DailyMail {
-        client: HttpClient::new().unwrap(),
-        tx,
-
-        link_sel: Selector::parse("a").unwrap(),
-        year_sel: Selector::parse("ul.archive-index.home.link-box li").unwrap(),
-        month_sel: Selector::parse("ul.cleared li").unwrap(),
-
-        day_sel: Selector::parse("div.debate.column-split.first-column").unwrap(),
-
-        content_sel: Selector::parse("div.alpha.debate.sitemap").unwrap(),
-        article_sel: Selector::parse("ul.archive-articles.debate.link-box").unwrap(),
-
-        article_content_sel: Selector::parse("#js-article-text").unwrap(),
-        title_sel: Selector::parse("h1,h2").unwrap(),
-        body_sel: Selector::parse(r#"div[itemprop="articleBody""#).unwrap(),
-        p_sel: Selector::parse("p").unwrap(),
-    };
+// single threaded
+pub fn crawl(seed: &str, store: store::Store) -> () {
+    let processor = DailyMail::new(store);
+    let articles = processor.crawl_archive(&seed.to_string()).into_iter()
+        .flat_map(|m| processor.crawl_month(&m)).into_iter()
+        .flat_map(|d| processor.crawl_day(&d)).into_iter()
+        .enumerate()
+        .for_each(|(i, u)| {
+            if i % 100 == 0 {
+                thread::sleep(Duration::from_secs(2));
+            }
+            processor.crawl_article(&u);
+        });
 }
 
-impl Crawler for DailyMail {
-    fn crawl(&self, seed: &str) -> () {
-        self.crawl_archive(&seed.to_string()).into_iter()
-            .flat_map(|m| self.crawl_month(&m)).into_iter()
-            .flat_map(|d| self.crawl_day(&d)).into_iter()
-            .enumerate()
-            .for_each(|(i, url)| {
-                if i % 100 == 0 {
-                    println!("sleeping");
-                    sleep(Duration::from_secs(3));
-                }
-                self.crawl_article(&url);
-            });
-
-        println!("done!");
-        self.tx.send(None).unwrap();
+impl pool::Processor for DailyMail {
+    fn crawl(&self, url: String) {
+        self.crawl_article(&url);
     }
 }
 
 impl DailyMail {
+    pub fn new(store: store::Store) -> DailyMail {
+        return DailyMail {
+            client: HttpClient::new().unwrap(),
+            store,
+
+            link_sel: Selector::parse("a").unwrap(),
+            year_sel: Selector::parse("ul.archive-index.home.link-box li").unwrap(),
+            month_sel: Selector::parse("ul.cleared li").unwrap(),
+
+            day_sel: Selector::parse("div.debate.column-split.first-column").unwrap(),
+
+            content_sel: Selector::parse("div.alpha.debate.sitemap").unwrap(),
+            article_sel: Selector::parse("ul.archive-articles.debate.link-box").unwrap(),
+
+            article_content_sel: Selector::parse("#js-article-text").unwrap(),
+            title_sel: Selector::parse("h1,h2").unwrap(),
+            body_sel: Selector::parse(r#"div[itemprop="articleBody""#).unwrap(),
+            p_sel: Selector::parse("p").unwrap(),
+        };
+    }
+
+
     // return all monthly links in the archive page
     fn crawl_archive(&self, url: &String) -> Vec<String> {
         let mut result = self.client.get(url).unwrap();
@@ -155,12 +158,19 @@ impl DailyMail {
 
     fn crawl_article(&self, url: &String) -> Option<()> {
         println!("fetching {}", url);
-        let mut result = self.client.get(url).unwrap();
+        let mut result = match self.client.get(url) {
+            Ok(r) => r,
+            Err(_) => return None,
+        };
         if !result.status().is_success() {
             eprintln!("request to crawl article {} resulted in {}", url, result.status());
             return None;
         }
-        let text = result.text().unwrap();
+
+        let text = match result.text() {
+            Ok(t) => t,
+            Err(_) => return None,
+        };
         let doc = Html::parse_document(&text);
 
         let article = doc.select(&self.article_content_sel).next()?;
@@ -180,11 +190,11 @@ impl DailyMail {
             title = title.split_whitespace().take(10).collect();
         }
 
-        let message = Message {
+        let chapter = Chapter {
             title,
             text,
         };
-        Some(self.tx.send(Some(message)).unwrap())
+        Some(self.store.save(chapter))
     }
 }
 
