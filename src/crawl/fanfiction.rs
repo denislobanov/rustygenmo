@@ -56,7 +56,7 @@ impl Worker {
                     }
                 }
 
-                thread::sleep(Duration::from_millis(200));
+                thread::sleep(Duration::from_millis(80));
             }
         });
 
@@ -68,7 +68,7 @@ impl Worker {
 
 // breadth first crawl
 pub fn crawl(seed: &str, store: store::Store) -> () {
-    let threads: usize = 3;
+    let threads: usize = 2;
 
     // Run multiple crawlers in parallel
     let queue: Arc<Mutex<VecDeque<Message>>> = Arc::new(Mutex::new(VecDeque::new()));
@@ -88,6 +88,7 @@ pub fn crawl(seed: &str, store: store::Store) -> () {
     let mut next: String = seed.to_string();
     while let Some(n) = processor.crawl_genre(&next, &mut book_urls) {
         if n == previous {
+            println!("next {:?} previous {:?}", next, previous);
             break;
         }
         previous = next;
@@ -96,25 +97,49 @@ pub fn crawl(seed: &str, store: store::Store) -> () {
 //            println!("next url to scrap: {} (not continuing)", next);
 //            break;
     }
-    println!("downloading books");
+    println!("downloading {} books\n", book_urls.len());
 
     // iterate through all chapters in each book, saving the content
     book_urls.into_iter()
         .enumerate()
         .for_each(|(i, url)| {
             if i % 100 == 0 {
-                println!("sleeping..");
+                print!(".");
                 sleep(Duration::from_secs(3));
             }
 
             queue.lock().unwrap().push_front(Message::Crawl(url));
         });
 
-    // stop the threads
-    println!("terminating crawlers");
-    for _ in 0..threads {
+    // Mark the end of the queue for the crawlers
+    for _ in 0..threads+1 {
         queue.lock().unwrap().push_front(Message::Terminate);
     }
+
+    println!("\ncrawling..");
+    loop {
+        if let Ok(ref mut q) = queue.try_lock() {
+            match q.pop_back() {
+                Some(Message::Crawl(url)) => processor.crawl_book(url),
+                _ => break,
+            }
+        }
+
+        thread::sleep(Duration::from_millis(100));
+    }
+//
+//    loop {
+//        {
+//            if let Some(msg)= queue.lock().unwrap().pop_back() {
+//                match msg {
+//                    Message::Crawl(url) => processor.crawl_book(url),
+//                    Message::Terminate => break,
+//                }
+//            }
+//        }
+//    }
+
+    println!("terminating crawlers");
     for i in 0..threads {
         crawlers[i].thread.take().unwrap().join();
     }
@@ -158,7 +183,7 @@ impl FanFiction {
         }
 
         // descending selectors for getting next page url's
-        let link = content.select(&self.link_sel).next().unwrap()
+        let link = content.select(&self.link_sel).into_iter().last()?
             .value().attr("href").unwrap().to_string();
 
         return Some(base.join(&link).unwrap().into_string());
