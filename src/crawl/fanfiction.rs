@@ -1,7 +1,9 @@
 extern crate isahc;
 extern crate url;
 
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread::{JoinHandle, sleep, spawn};
+use std::time::Duration;
 
 use scraper::{Html, Selector};
 use url::Url;
@@ -11,12 +13,9 @@ use crate::crawl::store::Message;
 
 use self::isahc::{HttpClient, ResponseExt};
 use self::url::ParseError;
-use std::thread::sleep;
-use std::time::Duration;
 
 pub struct FanFiction {
-    client: HttpClient,
-    tx: Sender<Option<Message>>,
+    client: HttpClient, //thread safe
 
     // Selectors
     content_sel: Selector,
@@ -31,10 +30,9 @@ pub struct FanFiction {
     chapter_sel: Selector,
 }
 
-pub fn new(tx: Sender<Option<Message>>) -> FanFiction {
+pub fn new() -> FanFiction {
     return FanFiction {
         client: HttpClient::new().unwrap(),
-        tx,
 
         content_sel: Selector::parse(r#"#content_parent #content_wrapper #content_wrapper_inner"#).unwrap(),
         books_sel: Selector::parse(r#"div.z-list.zhover.zpointer a.stitle"#).unwrap(),
@@ -47,9 +45,9 @@ pub fn new(tx: Sender<Option<Message>>) -> FanFiction {
     };
 }
 
-impl Crawler for FanFiction {
+impl FanFiction {
     // breadth first crawl
-    fn crawl(&self, seed: &str) -> () {
+    pub fn crawl(&self, seed: &str, msg_tx: Sender<Option<Message>>) -> () {
         let mut book_urls: Vec<String> = Vec::new();
 
         // iterate through listings in a genre to build a list of books
@@ -61,13 +59,25 @@ impl Crawler for FanFiction {
             }
             previous = next;
             next = n;
-
             //DEBUG
 //            println!("next url to scrap: {} (not continuing)", next);
 //            break;
         }
 
         println!("downloading books");
+
+        // instantiate crawler threads
+        let threads = 3;
+        let mut hs = Vec::new();
+        let mut chans = Vec::new();
+
+        for i in 0..threads {
+            let t_msg_tx = std::sync::mpsc::Sender::clone(&msg_tx);
+            let (url_tx, url_rx) = std::sync::mpsc::channel();
+            chans[i] = url_tx;
+
+            hs.push(spawn(move || self.crawl_thread(url_rx, t_msg_tx)));
+        }
 
         // iterate through all chapters in each book, saving the content
         book_urls.into_iter()
@@ -77,11 +87,18 @@ impl Crawler for FanFiction {
                     println!("sleeping..");
                     sleep(Duration::from_secs(3));
                 }
-                self.crawl_book(url)
+
+                chans[i%threads].send(Some(url)).unwrap();
             });
 
         // tell store that we've finished
-        self.tx.send(None).unwrap();
+        msg_tx.send(None).unwrap();
+
+        // stop the threads
+        for i in 0..3 {
+            chans[i].send(None).unwrap();
+            hs[i].join();
+        }
     }
 }
 
@@ -113,11 +130,21 @@ impl FanFiction {
         return Some(base.join(&link).unwrap().into_string());
     }
 
-    fn crawl_book(&self, url: String) {
+    fn crawl_thread(&self, url_rx: Receiver<Option<String>>, msg_tx: Sender<Option<Message>>) {
+        loop {
+            match url_rx.recv().unwrap() {
+                Some(url) => self.crawl_book(url, &msg_tx),
+                _ => return,
+            }
+
+        }
+    }
+
+    fn crawl_book(&self, url: String, msg_tx: &Sender<Option<Message>>) {
         let mut previous: String = "".parse().unwrap();
         let mut next: String = url;
 
-        while let Some(n) = self.crawl_chapter(&next) {
+        while let Some(n) = self.crawl_chapter(&next, msg_tx) {
             if n == previous {
                 break;
             }
@@ -130,7 +157,7 @@ impl FanFiction {
         }
     }
 
-    fn crawl_chapter(&self, url: &String) -> Option<String> {
+    fn crawl_chapter(&self, url: &String, msg_tx: &Sender<Option<Message>>) -> Option<String> {
 //        println!("url={}", url);
 
         let mut result = self.client.get(url).unwrap();
@@ -141,9 +168,11 @@ impl FanFiction {
         let doc = Html::parse_document(&result.text().unwrap());
 
         let content = doc.select(&self.content_sel).next().unwrap();
-        let title = content.select(&self.title_sel).next().unwrap()
-            .inner_html();
-        let text = content.select(&self.chapter_sel).next().unwrap()
+        let title = match content.select(&self.title_sel).next() {
+            Some(t) => t.inner_html(),
+            None => url.replace("/", ""),
+        };
+        let text = content.select(&self.chapter_sel).next()?
             .text().into_iter()
             .fold(String::new(), |a, x| a + x);
 
@@ -152,7 +181,7 @@ impl FanFiction {
             title,
             text,
         };
-        self.tx.send(Some(message)).unwrap();
+        msg_tx.send(Some(message)).unwrap();
 
         // build next url
         let next = match content.select(&self.next_sel).next() {

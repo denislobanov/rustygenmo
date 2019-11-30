@@ -1,4 +1,4 @@
-use std::fs::{OpenOptions, File};
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 use std::sync::mpsc::Receiver;
@@ -30,7 +30,13 @@ impl Store {
     }
 
     fn save(&self, msg: Message) {
-        let filename = msg.title.trim().replace(" ", "_");
+        let filename = msg.title.trim()
+            .replace(" ", "_")
+            .replace("/", "")
+            .replace("?", "")
+            .replace(".", "")
+            .replace(";", "")
+            .replace("&", "");
         let p = Path::new(&self.path).join(&filename);
 
 //        println!("path is: {:?}", p);
