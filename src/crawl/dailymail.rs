@@ -60,19 +60,10 @@ pub fn new(tx: Sender<Option<Message>>) -> DailyMail {
 
 impl Crawler for DailyMail {
     fn crawl(&self, seed: &str) -> () {
-        let months = self.crawl_archive(&seed.to_string());
-        let days: Vec<String> = months.into_iter()
-            .take(1)
-            .flat_map(|m| self.crawl_month(&m))
-            .collect();
-
-        let articles: Vec<String> = days.into_iter()
-            .take(1)
-            .flat_map(|d| self.crawl_day(&d))
-            .collect();
-
-        //debug take 1
-        articles.into_iter().take(1).for_each(|x| self.crawl_article(&x));
+        self.crawl_archive(&seed.to_string()).into_iter()
+            .flat_map(|m| self.crawl_month(&m)).into_iter()
+            .flat_map(|d| self.crawl_day(&d)).into_iter()
+            .for_each(|x| self.crawl_article(&x));
 
         println!("done!");
         self.tx.send(None).unwrap();
@@ -120,10 +111,6 @@ impl DailyMail {
 
         let mut links: Vec<String> = Vec::new();
         doc.select(&self.day_sel).map(|d| d.select(&self.link_sel))
-
-            //debug
-            .take(1)
-
             .flat_map(|x| x.into_iter())
             .map(|l| make_link(&base, l))
             .for_each(|l| links.push(l));
@@ -149,10 +136,6 @@ impl DailyMail {
         let content = doc.select(&self.content_sel).next().unwrap();
 
         content.select(&self.article_sel).map(|a| a.select(&self.link_sel))
-
-            //debug
-            .take(1)
-
             .flat_map(|x| x.into_iter())
             .map(|l| make_link(&base, l))
             .for_each(|l| links.push(l));
@@ -180,8 +163,8 @@ impl DailyMail {
             .text().into_iter()
             .fold(String::new(), |a, x| a + x);
 
-        // reduce title lenght a little
-        if title.len()>10 {
+        // reduce title length a little
+        if title.len() > 10 {
             title = title.split_whitespace().take(10).collect();
         }
 
