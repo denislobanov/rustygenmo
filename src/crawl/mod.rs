@@ -25,8 +25,8 @@ pub fn crawl_cmd(args: &ArgMatches) -> () {
 
     if args.is_present("fanfiction") {
         println!("crawling fanfiction");
-        let crawler = fanfiction::new();
-        crawler.crawl(url, msg_tx);
+        fanfiction::crawl(url, msg_tx);
+
     } else if args.is_present("dailymail") {
         println!("dailymail");
         let crawler = dailymail::new(msg_tx);

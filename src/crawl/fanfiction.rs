@@ -30,7 +30,7 @@ pub struct FanFiction {
     chapter_sel: Selector,
 }
 
-pub fn new() -> FanFiction {
+fn new() -> FanFiction {
     return FanFiction {
         client: HttpClient::new().unwrap(),
 
@@ -45,60 +45,65 @@ pub fn new() -> FanFiction {
     };
 }
 
-impl FanFiction {
-    // breadth first crawl
-    pub fn crawl(&self, seed: &str, msg_tx: Sender<Option<Message>>) -> () {
-        let mut book_urls: Vec<String> = Vec::new();
+// breadth first crawl
+pub fn crawl(seed: &str, msg_tx: Sender<Option<Message>>) -> () {
+    // Run multiple crawlers in parallel
+    let threads = 3;
+    let mut crawlers: Vec<FanFiction> = Vec::with_capacity(threads);
 
-        // iterate through listings in a genre to build a list of books
-        let mut previous: String = "".parse().unwrap();
-        let mut next: String = seed.to_string();
-        while let Some(n) = self.crawl_genre(&next, &mut book_urls) {
-            if n == previous{
-                break;
-            }
-            previous = next;
-            next = n;
-            //DEBUG
+    for i in 0..threads {
+        crawlers[i] = new();
+    }
+
+    // iterate through listings in a genre to build a list of books. Just use 1 crawler for this
+    let mut book_urls: Vec<String> = Vec::new();
+
+    let mut previous: String = "".parse().unwrap();
+    let mut next: String = seed.to_string();
+    while let Some(n) = crawlers[0].crawl_genre(&next, &mut book_urls) {
+        if n == previous{
+            break;
+        }
+        previous = next;
+        next = n;
+        //DEBUG
 //            println!("next url to scrap: {} (not continuing)", next);
 //            break;
-        }
+    }
+    println!("downloading books");
 
-        println!("downloading books");
+    // instantiate crawler threads
+//    let mut hs = Vec::with_capacity(threads);
+    let mut chans = Vec::with_capacity(threads);
 
-        // instantiate crawler threads
-        let threads = 3;
-        let mut hs = Vec::new();
-        let mut chans = Vec::new();
+    for i in 0..threads {
+        let (url_tx, url_rx) = std::sync::mpsc::channel();
+        chans[i] = url_tx;
 
-        for i in 0..threads {
-            let t_msg_tx = std::sync::mpsc::Sender::clone(&msg_tx);
-            let (url_tx, url_rx) = std::sync::mpsc::channel();
-            chans[i] = url_tx;
+        let h = spawn(move || {
+            crawlers[i].crawl_thread(url_rx, msg_tx.clone());
+        });
+    }
 
-            hs.push(spawn(move || self.crawl_thread(url_rx, t_msg_tx)));
-        }
+    // iterate through all chapters in each book, saving the content
+    book_urls.into_iter()
+        .enumerate()
+        .for_each(|(i, url)| {
+            if i % 100 == 0 {
+                println!("sleeping..");
+                sleep(Duration::from_secs(3));
+            }
 
-        // iterate through all chapters in each book, saving the content
-        book_urls.into_iter()
-            .enumerate()
-            .for_each(|(i, url)| {
-                if i % 100 == 0 {
-                    println!("sleeping..");
-                    sleep(Duration::from_secs(3));
-                }
+            chans[i%threads].send(Some(url)).unwrap();
+        });
 
-                chans[i%threads].send(Some(url)).unwrap();
-            });
+    // tell store that we've finished
+    msg_tx.send(None).unwrap();
 
-        // tell store that we've finished
-        msg_tx.send(None).unwrap();
-
-        // stop the threads
-        for i in 0..3 {
-            chans[i].send(None).unwrap();
-            hs[i].join();
-        }
+    // stop the threads
+    for i in 0..3 {
+        chans[i].send(None).unwrap();
+//        hs[i].join();
     }
 }
 
