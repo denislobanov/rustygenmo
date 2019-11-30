@@ -3,6 +3,7 @@ use std::thread::spawn;
 
 use clap::ArgMatches;
 
+mod dailymail;
 mod fanfiction;
 mod store;
 
@@ -26,9 +27,10 @@ pub fn crawl_cmd(args: &ArgMatches) -> () {
         println!("crawling fanfiction");
         let crawler = fanfiction::new(msg_tx);
         crawler.crawl(url);
-
     } else if args.is_present("dailymail") {
-        panic!("dailymail");
+        println!("dailymail");
+        let crawler = dailymail::new(msg_tx);
+        crawler.crawl(url);
     } else {
         panic!("you must choose one of [fanfiction|dailymail]");
     }

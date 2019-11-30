@@ -1,0 +1,199 @@
+extern crate isahc;
+extern crate url;
+
+use std::sync::mpsc::Sender;
+
+use scraper::{ElementRef, Html, Selector};
+use url::Url;
+
+use crate::crawl::Crawler;
+use crate::crawl::fanfiction::base_url;
+use crate::crawl::store::Message;
+
+use self::isahc::{HttpClient, ResponseExt};
+use self::url::ParseError;
+
+pub struct DailyMail {
+    client: HttpClient,
+    tx: Sender<Option<Message>>,
+
+    // Selectors
+    link_sel: Selector,
+
+    // archive page
+    year_sel: Selector,
+    month_sel: Selector,
+
+    // months
+    day_sel: Selector,
+
+    // days
+    content_sel: Selector,
+    article_sel: Selector,
+
+    // articles
+    article_content_sel: Selector,
+    title_sel: Selector,
+    body_sel: Selector,
+}
+
+pub fn new(tx: Sender<Option<Message>>) -> DailyMail {
+    return DailyMail {
+        client: HttpClient::new().unwrap(),
+        tx,
+
+        link_sel: Selector::parse("a").unwrap(),
+        year_sel: Selector::parse("ul.archive-index.home.link-box li").unwrap(),
+        month_sel: Selector::parse("ul.cleared li").unwrap(),
+
+        day_sel: Selector::parse("div.debate.column-split.first-column").unwrap(),
+
+        content_sel: Selector::parse("div.alpha.debate.sitemap").unwrap(),
+        article_sel: Selector::parse("ul.archive-articles.debate.link-box").unwrap(),
+
+        article_content_sel: Selector::parse("#js-article-text.wide.heading-tag-switch").unwrap(),
+        title_sel: Selector::parse("h2").unwrap(),
+        body_sel: Selector::parse(r#"div[itemprop="articleBody""#).unwrap(),
+
+    };
+}
+
+impl Crawler for DailyMail {
+    fn crawl(&self, seed: &str) -> () {
+        let months = self.crawl_archive(&seed.to_string());
+        let days: Vec<String> = months.into_iter()
+            .take(1)
+            .flat_map(|m| self.crawl_month(&m))
+            .collect();
+
+        let articles: Vec<String> = days.into_iter()
+            .take(1)
+            .flat_map(|d| self.crawl_day(&d))
+            .collect();
+
+        //debug take 1
+        articles.into_iter().take(1).for_each(|x| self.crawl_article(&x));
+
+        println!("done!");
+        self.tx.send(None).unwrap();
+    }
+}
+
+impl DailyMail {
+    // return all monthly links in the archive page
+    fn crawl_archive(&self, url: &String) -> Vec<String> {
+        let mut result = self.client.get(url).unwrap();
+        if !result.status().is_success() {
+            eprintln!("request to {} resulted in {}", url, result.status());
+            return Vec::new();
+        }
+
+        let text = result.text().unwrap();
+        let doc = Html::parse_document(&text);
+
+        let base = base_url(&url).unwrap();
+
+        let mut links: Vec<String> = Vec::new();
+
+        let months = doc.select(&self.year_sel).next().unwrap();
+        for month in months.select(&self.month_sel) {
+            for link in month.select(&self.link_sel) {
+                links.push(make_link(&base, link));
+            }
+        }
+
+        println!("got month links {}", links.len());
+        return links;
+    }
+
+    fn crawl_month(&self, url: &String) -> Vec<String> {
+        let mut result = self.client.get(url).unwrap();
+        if !result.status().is_success() {
+            eprintln!("request to {} resulted in {}", url, result.status());
+            return Vec::new();
+        }
+
+        let text = result.text().unwrap();
+        let doc = Html::parse_document(&text);
+
+        let base = base_url(&url).unwrap();
+
+        let mut links: Vec<String> = Vec::new();
+        doc.select(&self.day_sel).map(|d| d.select(&self.link_sel))
+
+            //debug
+            .take(1)
+
+            .flat_map(|x| x.into_iter())
+            .map(|l| make_link(&base, l))
+            .for_each(|l| links.push(l));
+
+
+        println!("got day links {}", links.len());
+        return links;
+    }
+
+    fn crawl_day(&self, url: &String) -> Vec<String> {
+        let mut result = self.client.get(url).unwrap();
+        if !result.status().is_success() {
+            eprintln!("request to crawl days {} resulted in {}", url, result.status());
+            return Vec::new();
+        }
+
+        let text = result.text().unwrap();
+        let doc = Html::parse_document(&text);
+
+        let base = base_url(&url).unwrap();
+
+        let mut links: Vec<String> = Vec::new();
+        let content = doc.select(&self.content_sel).next().unwrap();
+
+        content.select(&self.article_sel).map(|a| a.select(&self.link_sel))
+
+            //debug
+            .take(1)
+
+            .flat_map(|x| x.into_iter())
+            .map(|l| make_link(&base, l))
+            .for_each(|l| links.push(l));
+
+        println!("got article links {}", links.len());
+        return links;
+    }
+
+    fn crawl_article(&self, url: &String) -> () {
+        println!("fetching {}", url);
+        let mut result = self.client.get(url).unwrap();
+        if !result.status().is_success() {
+            eprintln!("request to crawl article {} resulted in {}", url, result.status());
+            return;
+        }
+        let text = result.text().unwrap();
+        let doc = Html::parse_document(&text);
+
+        let base = base_url(&url).unwrap();
+
+        let article = doc.select(&self.article_content_sel).next().unwrap();
+        let mut title = article.select(&self.title_sel).next().unwrap()
+            .inner_html();
+        let text = article.select(&self.body_sel).next().unwrap()
+            .text().into_iter()
+            .fold(String::new(), |a, x| a + x);
+
+        // reduce title lenght a little
+        if title.len()>10 {
+            title = title.split_whitespace().take(10).collect();
+        }
+
+        let message = Message {
+            title,
+            text,
+        };
+        self.tx.send(Some(message)).unwrap();
+    }
+}
+
+fn make_link(base: &Url, link: ElementRef) -> String {
+    let url = link.value().attr("href").unwrap().to_string();
+    return base.join(&url).unwrap().to_string();
+}

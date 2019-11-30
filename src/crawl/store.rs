@@ -46,12 +46,15 @@ impl Store {
             .unwrap();
 
         if append {
-            std::writeln!(file, "\n\n");
+            let _ = std::writeln!(file, "\n");
         }
 
-        match file.write_all(msg.text.as_bytes()) {
+        match file.write_all(msg.text.trim().as_bytes()) {
             Err(e) => eprintln!("failed to write file{}: {}", filename, e),
             Ok(_) => return,
         }
+
+        let _ = std::writeln!(file, "\n");
+        let _ = file.flush();
     }
 }

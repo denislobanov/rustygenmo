@@ -133,7 +133,7 @@ impl FanFiction {
             .inner_html();
         let text = content.select(&self.chapter_sel).next().unwrap()
             .text().into_iter()
-            .fold(String::new(), |a, x| a+x);
+            .fold(String::new(), |a, x| a + x);
 
         // save
         let message = Message {
@@ -161,7 +161,7 @@ impl FanFiction {
     }
 }
 
-fn base_url(url: &str) -> Result<Url, ParseError> {
+pub fn base_url(url: &str) -> Result<Url, ParseError> {
     let mut base = Url::parse(url)?;
 
     match base.path_segments_mut() {
@@ -174,5 +174,5 @@ fn base_url(url: &str) -> Result<Url, ParseError> {
     }
 
     base.set_query(None);
-    return Ok(base)
+    return Ok(base);
 }
